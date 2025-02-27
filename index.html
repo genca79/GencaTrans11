@@ -16,7 +16,7 @@
     <input type="password" id="gptApiKey" placeholder="Inserisci API Key GPT">
     <br>
     <label for="voiceId">Voice ID:</label>
-    <input type="text" id="voiceId" placeholder="Inserisci Voice ID ElevenLabs">
+    <input type="password" id="voiceId" placeholder="Inserisci Voice ID ElevenLabs">
     <br>
     <button onclick="saveApiKeys()">Salva API Key</button>
     <br><br>
@@ -31,96 +31,97 @@
     </select>
     <br><br>
 
-    <button id="startRecording">Inizia Registrazione</button>
-    <button id="stopRecording" disabled>Ferma Registrazione</button>
+    <button id="toggleRecording">Inizia Registrazione</button>
     <p id="transcribedText">Testo riconosciuto: ...</p>
     <p id="translatedText">Testo tradotto: ...</p>
     <audio id="audioPlayer" controls></audio>
 
-    <script>
-        function saveApiKeys() {
-            localStorage.setItem("elevenLabsApiKey", document.getElementById("elevenLabsApiKey").value);
-            localStorage.setItem("gptApiKey", document.getElementById("gptApiKey").value);
-            localStorage.setItem("voiceId", document.getElementById("voiceId").value);
-            alert("API Key salvate con successo!");
+<script>
+    let isRecording = false;
+    let mediaRecorder;
+    let audioChunks = [];
+    const toggleButton = document.getElementById("toggleRecording");
+    
+    toggleButton.addEventListener("click", function () {
+        if (!isRecording) {
+            startRecording();
+        } else {
+            stopRecording();
         }
+    });
 
-        function loadApiKeys() {
-            document.getElementById("elevenLabsApiKey").value = localStorage.getItem("elevenLabsApiKey") || "";
-            document.getElementById("gptApiKey").value = localStorage.getItem("gptApiKey") || "";
-            document.getElementById("voiceId").value = localStorage.getItem("voiceId") || "";
-        }
+    let audioStream;
 
-        window.onload = loadApiKeys;
-
-        let mediaRecorder;
-        let audioChunks = [];
-
-        async function requestMicrophoneAccess() {
+    async function getMicrophoneAccess() {
+        if (!audioStream) {
             try {
-                console.log("🔹 Richiesta permessi microfono...");
-                await navigator.mediaDevices.getUserMedia({ audio: true });
-                console.log("✅ Accesso al microfono autorizzato!");
+                audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                console.log("✅ Accesso al microfono ottenuto!");
             } catch (error) {
-                alert("⚠️ Il microfono è bloccato. Sbloccalo nelle impostazioni del browser.");
                 console.error("❌ Errore accesso microfono:", error);
+                alert("⚠️ Il microfono è bloccato. Sbloccalo nelle impostazioni del browser.");
             }
         }
+        return audioStream;
+    }
+        
+    async function startRecording() {
+        isRecording = true;
+        toggleButton.textContent = "Ferma Registrazione";
+        toggleButton.style.backgroundColor = "red";
+        console.log("Registrazione avviata");     
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+            audioChunks = [];
 
-        async function startRecording() {
-            console.log("🎤 Avvio registrazione...");
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-                audioChunks = [];
+            mediaRecorder.ondataavailable = event => {
+                audioChunks.push(event.data);
+            };
 
-                mediaRecorder.ondataavailable = event => {
-                    audioChunks.push(event.data);
-                };
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+                processAudio(audioBlob);
+            };
 
-                mediaRecorder.onstop = async () => {
-                    const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-
-                    try {
-                        console.log("🔹 Inizio trascrizione con ElevenLabs...");
-                        const text = await transcribeAudio(audioBlob);
-                        if (!text) throw new Error("Errore nella trascrizione");
-                        document.getElementById("transcribedText").innerText = "Testo riconosciuto: " + text;
-
-                        console.log("🔹 Inizio traduzione...");
-                        let selectedLanguage = document.getElementById("languageSelect").value;
-                        let translatedText = await translateText(text, selectedLanguage);
-                        if (!translatedText) throw new Error("Errore nella traduzione");
-                        document.getElementById("translatedText").innerText = "Testo tradotto: " + translatedText;
-
-                        console.log("🔹 Inizio sintesi vocale...");
-                        let audioUrl = await generateSpeech(translatedText);
-                        if (!audioUrl) throw new Error("Errore nella sintesi vocale");
-                        playAudio(audioUrl);
-                    } catch (error) {
-                        console.error("❌ Errore:", error.message);
-                    }
-                };
-
-                mediaRecorder.start();
-                document.getElementById("startRecording").disabled = true;
-                document.getElementById("stopRecording").disabled = false;
-            } catch (error) {
-                alert("Errore nell'accesso al microfono: " + error);
-                console.error("❌ Errore:", error);
-            }
+            mediaRecorder.start();
+        } catch (error) {
+            alert("Errore nell'accesso al microfono: " + error);
+            console.error("❌ Errore:", error);
         }
+    }
+    
+    function stopRecording() {
+        isRecording = false;
+        toggleButton.textContent = "Inizia Registrazione";
+        toggleButton.style.backgroundColor = "green";
+        console.log("Registrazione fermata");
+        if (mediaRecorder && mediaRecorder.state !== "inactive") {
+            mediaRecorder.stop();
+        }
+    }
 
-        document.getElementById("startRecording").addEventListener("click", startRecording);
-        document.getElementById("stopRecording").addEventListener("click", () => {
-            if (mediaRecorder && mediaRecorder.state !== "inactive") {
-                mediaRecorder.stop();
-                document.getElementById("startRecording").disabled = false;
-                document.getElementById("stopRecording").disabled = true;
-            }
-        });
+    async function processAudio(audioBlob) {
+        try {
+            console.log("🔹 Inizio trascrizione con ElevenLabs...");
+            const text = await transcribeAudio(audioBlob);
+            if (!text) throw new Error("Errore nella trascrizione");
+            document.getElementById("transcribedText").innerText = "Testo riconosciuto: " + text;
 
-        async function transcribeAudio(audioBlob) {
+            console.log("🔹 Inizio traduzione...");
+            let selectedLanguage = document.getElementById("languageSelect").value;
+            let translatedText = await translateText(text, selectedLanguage);
+            document.getElementById("translatedText").innerText = "Testo tradotto: " + translatedText;
+
+            console.log("🔹 Inizio sintesi vocale...");
+            let audioUrl = await generateSpeech(translatedText);
+            playAudio(audioUrl);
+        } catch (error) {
+            console.error("❌ Errore:", error.message);
+        }
+    }
+
+    async function transcribeAudio(audioBlob) {
             const elevenLabsApiKey = localStorage.getItem("elevenLabsApiKey");
             if (!elevenLabsApiKey) {
                 alert("Configura l'API ElevenLabs nelle impostazioni.");
@@ -222,6 +223,35 @@
                 document.getElementById("translatedText").innerText = "";
             };
         }
-    </script>
+</script>
+
+<style>
+    #toggleRecording {
+        font-size: 20px;
+        padding: 15px 30px;
+        border: none;
+        cursor: pointer;
+        border-radius: 8px;
+        background-color: green;
+        color: white;
+    }
+</style>
+
+<script>
+    function saveApiKeys() {
+        localStorage.setItem("elevenLabsApiKey", document.getElementById("elevenLabsApiKey").value);
+        localStorage.setItem("gptApiKey", document.getElementById("gptApiKey").value);
+        localStorage.setItem("voiceId", document.getElementById("voiceId").value);
+        alert("API Key salvate con successo!");
+    }
+
+    function loadApiKeys() {
+        document.getElementById("elevenLabsApiKey").value = localStorage.getItem("elevenLabsApiKey") || "";
+        document.getElementById("gptApiKey").value = localStorage.getItem("gptApiKey") || "";
+        document.getElementById("voiceId").value = localStorage.getItem("voiceId") || "";
+    }
+
+    window.onload = loadApiKeys;
+</script>
 </body>
 </html>
